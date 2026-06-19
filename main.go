@@ -7,28 +7,36 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
 const (
 	MAX_LENGTH = 2 * 1024 // 2 KB
-
-	// Cloudflare upstream
-	UPSTREAM      = "1.1.1.1:853"
-	UPSTREAM_NAME = "cloudflare-dns.com"
 )
 
 func main() {
+	// Load Certs and Keys
 	cert, err := tls.LoadX509KeyPair("certs/MyCert.crt", "certs/MyKey.key")
 	if err != nil {
 		log.Fatal("Unable to load TLS Certificates:", err)
 	}
 
-	config := &tls.Config{
-		Certificates: []tls.Certificate{cert},
+	// Load ENV file
+	env := os.Getenv("STAGING")
+	switch env {
+	case "production":
+		godotenv.Load(".env.prod")
+	default:
+		godotenv.Load(".env.dev")
 	}
 
-	listener, err := tls.Listen("tcp", ":8530", config)
+	// Create a TLS Listener
+	listener, err := tls.Listen("tcp", ":"+os.Getenv("Port"), &tls.Config{
+		Certificates: []tls.Certificate{cert},
+	})
 	if err != nil {
 		log.Fatal("Unable to Listen:", err)
 	}
@@ -40,11 +48,11 @@ func main() {
 			break
 		}
 
-		go handleConnection(conn)
+		go HandleConnection(conn)
 	}
 }
 
-func handleConnection(conn net.Conn) {
+func HandleConnection(conn net.Conn) {
 	defer conn.Close()
 
 	upstream, err := UpstreamConnection(1, nil)
@@ -81,8 +89,8 @@ func handleConnection(conn net.Conn) {
 func ResponseReciver(conn net.Conn, limit bool) ([]byte, error) {
 	length := make([]byte, 2)
 	/*
-		Used io.ReadFull instead of conn.Read as if the data is less than 2 bytes,
-		conn.Read will read less. ReadFull ensures that we get 2 bytes.
+		Used io.ReadFull instead of conn.Read because if the data is less than 2 bytes,
+		conn.Read will read less. ReadFull ensures that we get 2 bytes regardless
 	*/
 	_, err := io.ReadFull(conn, length)
 	if err != nil {
@@ -122,8 +130,10 @@ func UpstreamConnection(tries int, err error) (*tls.Conn, error) {
 	if tries > 5 {
 		return nil, err
 	}
-	upstream, err := tls.Dial("tcp", UPSTREAM, &tls.Config{
-		ServerName: UPSTREAM_NAME,
+
+	upstream, err := tls.Dial("tcp", os.Getenv("Upstream"), &tls.Config{
+		ServerName:         os.Getenv("UpstreamName"),
+		InsecureSkipVerify: os.Getenv("STAGING") != "production",
 	})
 	if err != nil {
 		time.Sleep(2 * time.Second)

@@ -4,6 +4,7 @@
 
 - [Engineering Principles](#engineering-principles)
 - [Phase 1: Minimal DNS-over-TLS Forwarder](#phase-1--minimal-dns-over-tls-forwarder)
+- [Phase 2: Basic DNS Filtering](#phase-2--basic-dns-filtering)
 
 ## Engineering Principles
 
@@ -73,6 +74,52 @@ Very early visibility:
 
 - No filtering. No users. No analytics.
 - Everything depends on upstream.
+
+---
+
+## Phase 2: Basic DNS Filtering
+
+### Goal
+
+- Turn the resolver into an actual ad blocker.
+
+### Scope
+
+- Exact-match blocking only.
+
+### Features
+
+- in-memory hashmap blocklists
+- return 0.0.0.0
+- basic logging
+
+### Lightweight Testing
+
+Simple correctness tests:
+
+- blocked domain tests
+- allowed domain tests
+- malformed request tests
+
+### Learn
+
+- DNS response crafting
+- hot-path operations
+- in-memory lookups
+- table-driven testing
+
+### Immediate Improvement
+
+- The project becomes a functioning DNS ad blocker.
+
+### Bottleneck
+
+Problems:
+
+- exact matching only
+- no categories
+- no user-specific policies
+- no scalability concerns yet
 
 ---
 
