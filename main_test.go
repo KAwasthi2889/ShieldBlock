@@ -4,11 +4,15 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"io"
+	"math/rand"
 	"os"
 	"sync"
 	"testing"
 	"time"
 )
+
+// For generating random string
+const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 var inital sync.Once
 
@@ -16,59 +20,94 @@ func setupTestEnvoirment() {
 	os.Setenv("STAGING", "testing")
 	go StartMockServer()
 	go main()
+	time.Sleep(100 * time.Millisecond)
 }
 
 func TestFowarder(t *testing.T) {
 	inital.Do(setupTestEnvoirment)
-	time.Sleep(100 * time.Millisecond)
+
+	// Random Number of testcases, max 100
+	num := rand.Int() % 100
+	Messages := make([]string, 0, num)
+	for range num {
+		// Random length input, max 2KB.
+		length := rand.Int() % (MAX_LENGTH)
+		Messages = append(Messages, randomString(length))
+	}
+
 	conn, err := tls.Dial("tcp", "127.0.0.1:8530", &tls.Config{
 		InsecureSkipVerify: true,
 	})
 	if err != nil {
 		t.Fatal("Error connecting to test server", err)
 	}
+	defer conn.Close()
 
-	MESSAGES := [5]string{
-		"This is a test DNS message",
-		"This is another test DNS message",
-		"This is the 3rd message",
-		"And this one too",
-		"At Last, The final message",
-	}
-
-	EXPECTED := [5]string{
-		"Here you go: This is a test DNS message",
-		"Here you go: This is another test DNS message",
-		"Here you go: This is the 3rd message",
-		"Here you go: And this one too",
-		"Here you go: At Last, The final message",
-	}
-
-	for i := 0; i < 5; i++ {
-		data := []byte(MESSAGES[i])
-		length := make([]byte, 2)
-		binary.BigEndian.PutUint16(length, uint16(len(data)))
-		mssg := append(length, data...)
-
-		_, err = conn.Write(mssg)
+	for i := 0; i < len(Messages); i++ {
+		message := Messages[i]
+		response, err := dummyData(conn, message)
 		if err != nil {
-			t.Fatal("Error Writing test message", err)
+			t.Fatal("Error in reading and writing to server", err)
 		}
 
-		_, err = io.ReadFull(conn, length)
-		if err != nil {
-			t.Fatal("Error reciving length", err)
-		}
-
-		len := binary.BigEndian.Uint16(length)
-		response := make([]byte, int(len))
-		_, err = io.ReadFull(conn, response)
-		if err != nil {
-			t.Fatal("Error reading responsee", err)
-		}
-
-		if string(response) != EXPECTED[i] {
-			t.Error("Expected", EXPECTED[i], "\nRecived:", string(response))
+		message = "Here you go: " + message
+		if res := string(response); res != message {
+			t.Error("Expected", message, "\nRecived:", res)
 		}
 	}
+}
+
+func BenchmarkFowarder(b *testing.B) {
+	inital.Do(setupTestEnvoirment)
+	conn, err := tls.Dial("tcp", "127.0.0.1:8530", &tls.Config{
+		InsecureSkipVerify: true,
+	})
+	if err != nil {
+		b.Fatal("Error connecting to test server", err)
+	}
+	defer conn.Close()
+
+	message := "Here is a DNS message to benchmark"
+	b.ResetTimer() // Start timer from here
+
+	for b.Loop() {
+		_, err := dummyData(conn, message)
+		if err != nil {
+			b.Error("Error reading & writing data:", err)
+		}
+	}
+}
+
+func dummyData(conn *tls.Conn, message string) ([]byte, error) {
+	data := []byte(message)
+	length := make([]byte, 2)
+	binary.BigEndian.PutUint16(length, uint16(len(data)))
+	mssg := append(length, data...)
+
+	_, err := conn.Write(mssg)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = io.ReadFull(conn, length)
+	if err != nil {
+		return nil, err
+	}
+
+	len := binary.BigEndian.Uint16(length)
+	response := make([]byte, int(len))
+	_, err = io.ReadFull(conn, response)
+	if err != nil {
+		return nil, err
+	}
+
+	return response, nil
+}
+
+func randomString(n int) string {
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = charset[rand.Intn(len(charset))]
+	}
+	return string(b)
 }

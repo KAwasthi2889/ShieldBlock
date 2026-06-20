@@ -38,7 +38,9 @@ func mockHandleConnection(conn net.Conn) {
 	for {
 		mssg, err := dummyResponseReciver(conn)
 		if err != nil {
-			log.Println("Error reciving dns request", err)
+			if err != io.EOF {
+				log.Println("Error reciving dns request", err)
+			}
 			return
 		}
 

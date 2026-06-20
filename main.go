@@ -65,7 +65,9 @@ func HandleConnection(conn net.Conn) {
 	for {
 		mssg, err := ResponseReciver(conn, true)
 		if err != nil {
-			log.Println("Error reciving dns request", err)
+			if err != io.EOF {
+				log.Println("Error reciving dns request", err)
+			}
 			return
 		}
 		// Now we will send the data upstream, since we are not reading in phase 1
