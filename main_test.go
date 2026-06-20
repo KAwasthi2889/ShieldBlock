@@ -14,7 +14,7 @@ import (
 // For generating random string
 const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
-var inital sync.Once
+var initial sync.Once
 
 func setupTestEnvoirment() {
 	os.Setenv("STAGING", "testing")
@@ -24,11 +24,12 @@ func setupTestEnvoirment() {
 }
 
 func TestFowarder(t *testing.T) {
-	inital.Do(setupTestEnvoirment)
+	initial.Do(setupTestEnvoirment)
 
 	// Random Number of testcases, max 100
 	num := rand.Int() % 100
 	Messages := make([]string, 0, num)
+
 	for range num {
 		// Random length input, max 2KB.
 		length := rand.Int() % (MAX_LENGTH)
@@ -57,8 +58,35 @@ func TestFowarder(t *testing.T) {
 	}
 }
 
+func TestOversizedInputs(t *testing.T) {
+	initial.Do(setupTestEnvoirment)
+
+	message := randomString(3 * 1024)
+
+	conn, err := tls.Dial("tcp", "127.0.0.1:8530", &tls.Config{
+		InsecureSkipVerify: true,
+	})
+	if err != nil {
+		t.Fatal("Error connecting to test server", err)
+	}
+	defer conn.Close()
+
+	res, err := dummyData(conn, message)
+	if err != nil {
+		if err != io.EOF {
+			t.Fatal("Error reading and writing message", err)
+		}
+		return
+	}
+
+	if string(res) != "Max Lenght exceeded!!" {
+		t.Error("Max length error not encountered")
+	}
+
+}
+
 func BenchmarkFowarder(b *testing.B) {
-	inital.Do(setupTestEnvoirment)
+	initial.Do(setupTestEnvoirment)
 	conn, err := tls.Dial("tcp", "127.0.0.1:8530", &tls.Config{
 		InsecureSkipVerify: true,
 	})
