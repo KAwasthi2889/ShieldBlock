@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -58,32 +59,63 @@ func TestFowarder(t *testing.T) {
 	}
 }
 
-// func TestOversizedInputs(t *testing.T) {
-// 	initial.Do(setupTestEnvoirment)
+func TestOversizedInputs(t *testing.T) {
+	Initial.Do(setupTestEnvoirment)
 
-// 	message := randomString(3 * 1024)
+	conn, err := tls.Dial("tcp", "127.0.0.1:8530", &tls.Config{
+		InsecureSkipVerify: true,
+	})
+	if err != nil {
+		t.Fatal("Error connecting to test server", err)
+	}
+	defer conn.Close()
 
-// 	conn, err := tls.Dial("tcp", "127.0.0.1:8530", &tls.Config{
-// 		InsecureSkipVerify: true,
-// 	})
-// 	if err != nil {
-// 		t.Fatal("Error connecting to test server", err)
-// 	}
-// 	defer conn.Close()
+	var message strings.Builder
+	message.Grow(3 * 1024)
+	for i := 0; i < 1024; i++ {
+		message.WriteString("abc")
+	}
 
-// 	res, err := dummyData(conn, message)
-// 	if err != nil {
-// 		if err != io.EOF {
-// 			t.Fatal("Error reading and writing message", err)
-// 		}
-// 		return
-// 	}
+	length := make([]byte, 2)
+	data := []byte(message.String())
+	binary.BigEndian.PutUint16(length, uint16(len(data)))
+	mssg := append(length, data...)
+	_, err = conn.Write(mssg)
+	if err != nil {
+		t.Error("Error writing to server")
+	}
 
-// 	if string(res) != "Max Lenght exceeded!!" {
-// 		t.Error("Max length error not encountered")
-// 	}
+	_, err = io.ReadFull(conn, length)
+	if err == nil || err != io.EOF {
+		t.Fatal("Max length error not encountered")
+	}
+}
 
-// }
+func TestMalformedMessage(t *testing.T) {
+	Initial.Do(setupTestEnvoirment)
+
+	conn, err := tls.Dial("tcp", "127.0.0.1:8530", &tls.Config{
+		InsecureSkipVerify: true,
+	})
+	if err != nil {
+		t.Fatal("Error connecting to test server", err)
+	}
+	defer conn.Close()
+
+	length := make([]byte, 2)
+	data := []byte("This is not a dns query!!")
+	binary.BigEndian.PutUint16(length, uint16(len(data)))
+	mssg := append(length, data...)
+	_, err = conn.Write(mssg)
+	if err != nil {
+		t.Error("Error writing to server")
+	}
+
+	_, err = io.ReadFull(conn, length)
+	if err == nil || err != io.EOF {
+		t.Fatal("Malformed Packet Not droped")
+	}
+}
 
 func BenchmarkFowarder(b *testing.B) {
 	Initial.Do(setupTestEnvoirment)

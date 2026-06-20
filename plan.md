@@ -5,6 +5,7 @@
 - [Engineering Principles](#engineering-principles)
 - [Phase 1: Minimal DNS-over-TLS Forwarder](#phase-1--minimal-dns-over-tls-forwarder)
 - [Phase 2: Basic DNS Filtering](#phase-2--basic-dns-filtering)
+- [Phase 3: User Authentication & Analytics Writes](#phase-3--user-authentication--direct-analytics-writes)
 
 ## Engineering Principles
 
@@ -66,13 +67,13 @@ Very early visibility:
 - DNS request lifecycle
 - structured logging basics
 
-### Immediate Improvement
+### Immediate Learning
 
 - You now understand the complete encrypted DNS request lifecycle.
 
 ### Bottleneck
 
-- No filtering. No users. No analytics.
+- No filtering. No user auth. No analytics.
 - Everything depends on upstream.
 
 ---
@@ -120,6 +121,103 @@ Problems:
 - no categories
 - no user-specific policies
 - no scalability concerns yet
+
+---
+
+## Phase 3: User Authentication & Direct Analytics Writes
+
+### Goal
+
+- Introduce personalized filtering and observability.
+
+### Scope
+
+Users authenticate via:
+
+- {config hash}.dns.shieldblock.in
+
+### Features
+
+- extract SNI
+- parse user hash
+- user bitmask policies
+- direct analytical DB writes
+- internal metrics
+- basic /healthz
+- basic /readyz
+
+### Analytics Stored
+
+- user hash
+- queried domain
+- blocked/allowed
+- response latency
+- timestamp
+
+### Lightweight Operational Visibility
+
+Minimal metrics endpoint:
+
+- request counters
+- blocked counters
+- auth lookup counters
+- basic latency histograms
+
+### Lightweight Failure Testing
+
+Basic fault simulation:
+
+- DB unavailable
+- malformed SNI
+- auth lookup failure
+
+### Learn
+
+- SNI-based authentication
+- connection identity
+- analytics modeling
+- write-heavy systems
+- operational visibility basics
+- failure-oriented thinking
+- health endpoint semantics
+
+### Immediate Improvement
+
+Users now get:
+
+- personalized filtering
+- policy-based blocking
+- query analytics
+- measurable resolver behavior
+
+### Failure Discovered
+
+- System behavior became difficult to reason about without visibility.
+
+### Why It Happened
+
+- Architectural complexity increased beyond intuitive debugging.
+
+### Architectural Fix
+
+- Introduce lightweight internal metrics.
+
+### Tradeoff Introduced
+
+- Minor instrumentation overhead.
+
+### Bottleneck
+
+Every DNS query performs:
+
+- authentication lookup
+- analytics DB write
+
+Problems:
+
+- repeated auth work
+- increased latency
+- DB dependency inside hot path
 
 ---
 

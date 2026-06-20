@@ -35,8 +35,9 @@ func HandleConnection(conn net.Conn) {
 
 		// Check validity of dns query against blocklist
 		if err := AuthenticateQuery(conn, msg); err != nil {
-			if err != io.EOF {
+			if err.Error() != "Blocked Domain" {
 				log.Println("Error Authenticating Query", err)
+				return
 			}
 			continue
 		}
@@ -78,11 +79,11 @@ func AuthenticateQuery(conn net.Conn, msg []byte) error {
 		(domain.Qtype == dns.TypeA || domain.Qtype == dns.TypeAAAA) {
 		msg, err := SinkholeReply(reply, domain.Name, domain.Qtype)
 		if err != nil {
-			log.Println("Error while building sinkhole", err)
+			return err
 		}
 
 		conn.Write(msg)
-		return io.EOF
+		return errors.New("Blocked Domain")
 	}
 	return nil
 }
