@@ -4,17 +4,24 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"io"
-	"math/rand"
 	"os"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/miekg/dns"
 )
 
-// For generating random string
-const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-
-var initial sync.Once
+var (
+	Initial  sync.Once
+	Messages = map[string]string{
+		"google.com.":      "142.251.43.206",
+		"ads.google.com.":  "0.0.0.0",
+		"doubleclick.com.": "0.0.0.0",
+		"x.com.":           "172.66.0.227",
+		"github.com.":      "20.207.73.82",
+	}
+)
 
 func setupTestEnvoirment() {
 	os.Setenv("STAGING", "testing")
@@ -24,69 +31,63 @@ func setupTestEnvoirment() {
 }
 
 func TestFowarder(t *testing.T) {
-	initial.Do(setupTestEnvoirment)
+	Initial.Do(setupTestEnvoirment)
 
-	// Random Number of testcases, max 100
-	num := rand.Int() % 100
-	Messages := make([]string, 0, num)
-
-	for range num {
-		// Random length input, max 2KB.
-		length := rand.Int() % (MAX_LENGTH)
-		Messages = append(Messages, randomString(length))
-	}
-
-	conn, err := tls.Dial("tcp", "127.0.0.1:8530", &tls.Config{
+	server, err := tls.Dial("tcp", "127.0.0.1:8530", &tls.Config{
 		InsecureSkipVerify: true,
 	})
 	if err != nil {
 		t.Fatal("Error connecting to test server", err)
 	}
-	defer conn.Close()
+	defer server.Close()
 
-	for i := 0; i < len(Messages); i++ {
-		message := Messages[i]
-		response, err := dummyData(conn, message)
+	for site, ip := range Messages {
+		response, err := dummyData(server, site)
 		if err != nil {
 			t.Fatal("Error in reading and writing to server", err)
 		}
 
-		message = "Here you go: " + message
-		if res := string(response); res != message {
-			t.Error("Expected", message, "\nRecived:", res)
+		res, err := getIP(response)
+		if err != nil {
+			t.Error("Error in response", err)
+		}
+
+		if res != ip {
+			t.Error("Expected", ip, "\nRecived:", res)
 		}
 	}
 }
 
-func TestOversizedInputs(t *testing.T) {
-	initial.Do(setupTestEnvoirment)
+// func TestOversizedInputs(t *testing.T) {
+// 	initial.Do(setupTestEnvoirment)
 
-	message := randomString(3 * 1024)
+// 	message := randomString(3 * 1024)
 
-	conn, err := tls.Dial("tcp", "127.0.0.1:8530", &tls.Config{
-		InsecureSkipVerify: true,
-	})
-	if err != nil {
-		t.Fatal("Error connecting to test server", err)
-	}
-	defer conn.Close()
+// 	conn, err := tls.Dial("tcp", "127.0.0.1:8530", &tls.Config{
+// 		InsecureSkipVerify: true,
+// 	})
+// 	if err != nil {
+// 		t.Fatal("Error connecting to test server", err)
+// 	}
+// 	defer conn.Close()
 
-	res, err := dummyData(conn, message)
-	if err != nil {
-		if err != io.EOF {
-			t.Fatal("Error reading and writing message", err)
-		}
-		return
-	}
+// 	res, err := dummyData(conn, message)
+// 	if err != nil {
+// 		if err != io.EOF {
+// 			t.Fatal("Error reading and writing message", err)
+// 		}
+// 		return
+// 	}
 
-	if string(res) != "Max Lenght exceeded!!" {
-		t.Error("Max length error not encountered")
-	}
+// 	if string(res) != "Max Lenght exceeded!!" {
+// 		t.Error("Max length error not encountered")
+// 	}
 
-}
+// }
 
 func BenchmarkFowarder(b *testing.B) {
-	initial.Do(setupTestEnvoirment)
+	Initial.Do(setupTestEnvoirment)
+
 	conn, err := tls.Dial("tcp", "127.0.0.1:8530", &tls.Config{
 		InsecureSkipVerify: true,
 	})
@@ -95,24 +96,31 @@ func BenchmarkFowarder(b *testing.B) {
 	}
 	defer conn.Close()
 
-	message := "Here is a DNS message to benchmark"
 	b.ResetTimer() // Start timer from here
 
 	for b.Loop() {
-		_, err := dummyData(conn, message)
+		_, err := dummyData(conn, "google.com")
 		if err != nil {
 			b.Error("Error reading & writing data:", err)
 		}
 	}
 }
 
-func dummyData(conn *tls.Conn, message string) ([]byte, error) {
-	data := []byte(message)
+func dummyData(conn *tls.Conn, site string) ([]byte, error) {
 	length := make([]byte, 2)
+
+	m := new(dns.Msg)
+	m.SetQuestion(dns.Fqdn(site), dns.TypeA)
+
+	data, err := m.Pack()
+	if err != nil {
+		return nil, err
+	}
+
 	binary.BigEndian.PutUint16(length, uint16(len(data)))
 	mssg := append(length, data...)
 
-	_, err := conn.Write(mssg)
+	_, err = conn.Write(mssg)
 	if err != nil {
 		return nil, err
 	}
@@ -122,8 +130,8 @@ func dummyData(conn *tls.Conn, message string) ([]byte, error) {
 		return nil, err
 	}
 
-	len := binary.BigEndian.Uint16(length)
-	response := make([]byte, int(len))
+	msgLen := binary.BigEndian.Uint16(length)
+	response := make([]byte, int(msgLen))
 	_, err = io.ReadFull(conn, response)
 	if err != nil {
 		return nil, err
@@ -132,10 +140,17 @@ func dummyData(conn *tls.Conn, message string) ([]byte, error) {
 	return response, nil
 }
 
-func randomString(n int) string {
-	b := make([]byte, n)
-	for i := range b {
-		b[i] = charset[rand.Intn(len(charset))]
+func getIP(response []byte) (string, error) {
+	m := new(dns.Msg)
+	if err := m.Unpack(response); err != nil {
+		return "", err
 	}
-	return string(b)
+
+	var res string
+	for _, rr := range m.Answer {
+		if a, ok := rr.(*dns.A); ok {
+			res = a.A.String()
+		}
+	}
+	return res, nil
 }

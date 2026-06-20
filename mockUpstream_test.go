@@ -6,6 +6,8 @@ import (
 	"io"
 	"log"
 	"net"
+
+	"github.com/miekg/dns"
 )
 
 func StartMockServer() {
@@ -36,7 +38,7 @@ func StartMockServer() {
 func mockHandleConnection(conn net.Conn) {
 	defer conn.Close()
 	for {
-		mssg, err := dummyResponseReciver(conn)
+		mssg, err := ResponseReciver(conn, false)
 		if err != nil {
 			if err != io.EOF {
 				log.Println("Mock: Error reciving dns request", err)
@@ -44,40 +46,37 @@ func mockHandleConnection(conn net.Conn) {
 			return
 		}
 
-		resolved_mssg := messageParser(mssg)
+		m := new(dns.Msg)
+		if err := m.Unpack(mssg[2:]); err != nil {
+			log.Println("Mock: Bad Request", err)
+		}
+
+		r := new(dns.Msg).SetReply(m)
+		domain := m.Question[0]
+
+		ip, exists := Messages[domain.Name]
+		if !exists {
+			ip = "1.1.1.1"
+		}
+
+		r.Answer = append(r.Answer, &dns.A{
+			Hdr: dns.RR_Header{
+				Name:   domain.Name,
+				Rrtype: dns.TypeA,
+				Class:  dns.ClassINET,
+				Ttl:    60,
+			},
+			A: net.ParseIP(ip).To4(),
+		})
+
+		res, err := r.Pack()
+		if err != nil {
+			log.Println("Mock: Error packing dns response", err)
+			continue
+		}
 
 		length := make([]byte, 2)
-		binary.BigEndian.PutUint16(length, uint16(len(resolved_mssg)))
-		conn.Write(append(length, resolved_mssg...))
+		binary.BigEndian.PutUint16(length, uint16(len(res)))
+		conn.Write(append(length, res...))
 	}
-}
-
-func dummyResponseReciver(conn net.Conn) ([]byte, error) {
-	length := make([]byte, 2)
-
-	_, err := io.ReadFull(conn, length)
-	if err != nil {
-		if err != io.EOF {
-			log.Println("Error reading length", err)
-		}
-		return nil, err
-	}
-
-	len := binary.BigEndian.Uint16(length)
-	data := make([]byte, int(len))
-
-	_, err = io.ReadFull(conn, data)
-	if err != nil {
-		if err != io.EOF {
-			log.Println("Error reading data", err)
-		}
-		return nil, err
-	}
-
-	return data, nil
-}
-
-func messageParser(data []byte) []byte {
-	s := "Here you go: "
-	return append([]byte(s), data...)
 }
